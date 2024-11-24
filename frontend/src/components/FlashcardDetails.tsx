@@ -30,7 +30,7 @@ const FlashcardDetails: React.FC = () => {
   useEffect(() => {
     const fetchVideoDetails = async () => {
       try {
-        const response = await axios.get(`http://localhost:3000/youtube/${videoId}`, {
+        const response = await axios.get(`https://jotta-app.onrender.com/youtube/${videoId}`, {
           withCredentials: true,
         });
         setVideo(response.data);
@@ -48,7 +48,7 @@ const FlashcardDetails: React.FC = () => {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await axios.delete(`http://localhost:3000/youtube/${videoId}`, {
+      await axios.delete(`https://jotta-app.onrender.com/youtube/${videoId}`, {
         withCredentials: true,
       });
       navigate("/dashboard");

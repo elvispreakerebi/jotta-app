@@ -32,7 +32,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchUserAndVideos = async () => {
       try {
-        const userResponse = await axios.get("http://localhost:3000/auth/user", {
+        const userResponse = await axios.get("https://jotta-app.onrender.com/auth/user", {
           withCredentials: true, // Ensure credentials are included
         });
         setUser(userResponse.data);
@@ -61,7 +61,7 @@ const Dashboard = () => {
 
   const fetchSavedVideos = async () => {
     try {
-      const videosResponse = await axios.get("http://localhost:3000/youtube/saved-videos", {
+      const videosResponse = await axios.get("https://jotta-app.onrender.com/youtube/saved-videos", {
         withCredentials: true,
       });
       setSavedVideos(videosResponse.data);
@@ -73,7 +73,7 @@ const Dashboard = () => {
 
   const checkVideoExists = async (videoId: string) => {
     try {
-      const response = await axios.get(`http://localhost:3000/youtube/${videoId}`, {
+      const response = await axios.get(`https://jotta-app.onrender.com/youtube/${videoId}`, {
         withCredentials: true,
       });
       return response.status === 200; // Video exists
@@ -84,7 +84,7 @@ const Dashboard = () => {
 
   const handleLogout = async () => {
     try {
-      await axios.get("http://localhost:3000/auth/logout", { withCredentials: true });
+      await axios.get("https://jotta-app.onrender.com/auth/logout", { withCredentials: true });
       window.location.href = "/";
     } catch (error) {
       console.error("Error logging out:", error);
@@ -103,7 +103,7 @@ const Dashboard = () => {
       }
 
       const response = await axios.post(
-          "http://localhost:3000/youtube/generate",
+          "https://jotta-app.onrender.com/youtube/generate",
           { videoId },
           { withCredentials: true }
       );
