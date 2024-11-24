@@ -6,6 +6,7 @@ const session = require("express-session");
 const flash = require("connect-flash");
 const cors = require("cors");
 const MongoStore = require("connect-mongo");
+const path = require("path");
 
 const app = express();
 
@@ -60,6 +61,14 @@ app.use(passport.session());
 // Routes
 app.use("/auth", require("./routes/auth"));
 app.use("/youtube", require("./routes/youtube"));
+
+// Serve static files from the React frontend build
+app.use(express.static(path.join(__dirname, "frontend/build")));
+
+// Handle React routing, return all requests to the React app
+app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "frontend/build", "index.html"));
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
