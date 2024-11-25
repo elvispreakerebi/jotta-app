@@ -98,7 +98,7 @@ const Dashboard = () => {
       toast.info("Generation process cancelled.");
       return;
     }
-
+  
     try {
       setIsGenerating(true);
       const videoId = youtubeUrl.split("v=")[1]?.split("&")[0];
@@ -107,10 +107,19 @@ const Dashboard = () => {
         setIsGenerating(false);
         return;
       }
-
+  
+      // Check if the video already has flashcards
+      const videoExists = await checkVideoExists(videoId);
+      if (videoExists) {
+        toast.error("Flashcards already exist for this video.");
+        setYoutubeUrl(""); // Clear the input field
+        setIsGenerating(false);
+        return;
+      }
+  
       const response = await axios.post("/youtube/generate", { videoId }, { withCredentials: true });
       toast.success(response.data.message);
-
+  
       // Start polling for status and update progress
       const interval = setInterval(async () => {
         const videoExists = await checkVideoExists(videoId);
@@ -124,22 +133,23 @@ const Dashboard = () => {
           setYoutubeUrl("");
         } else {
           // Simulate progress only while the backend is processing
-          setProgress((prev) => Math.min(prev + 1, 90));
+          setProgress((prev) => Math.min(prev + 1, 99));
         }
       }, 2000);
-
+  
       setPollingInterval(interval);
     } catch (error: any) {
       console.error("Error generating video details:", error);
-
+  
       const errorMessage =
         error.response?.data?.error || "Failed to generate video details. Please try again.";
       toast.error(errorMessage);
-
+  
       setIsGenerating(false);
       setProgress(0);
     }
   };
+  
 
   return (
     <div className="min-h-screen bg-gray-50">

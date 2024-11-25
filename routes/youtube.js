@@ -11,8 +11,8 @@ const ffmpeg = require("fluent-ffmpeg");
 const router = express.Router();
 
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
-const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
+// Redis connection options
 const Redis = require("ioredis");
 const redis = new Redis(process.env.REDIS_URL);
 const connection = { redis };
@@ -23,51 +23,52 @@ const queueEvents = new QueueEvents("flashcardsQueue", { connection });
 
 // Listen for job completion and failure
 queueEvents.on("completed", (jobId, result) => {
-  console.log(`Job ${jobId} completed with result: ${result}`);
+  console.log(`[QUEUE] Job ${jobId} completed with result: ${result}`);
 });
 queueEvents.on("failed", (jobId, failedReason) => {
-  console.error(`Job ${jobId} failed with reason: ${failedReason}`);
+  console.error(`[QUEUE] Job ${jobId} failed with reason: ${failedReason}`);
 });
 
 // Helper function to fetch YouTube video details
 const fetchVideoDetails = async (videoId) => {
   const apiUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
 
+  console.log(`[FETCH] Fetching video details for video ID: ${videoId}`);
   try {
     const response = await axios.get(apiUrl);
     const { title, thumbnail_url: thumbnail } = response.data;
-    console.log("Fetched video details:", { title, thumbnail });
+    console.log(`[FETCH] Fetched details: Title="${title}", Thumbnail="${thumbnail}"`);
     return { title, thumbnail };
   } catch (error) {
-    console.error("Error fetching video details:", error);
+    console.error(`[FETCH] Failed to fetch video details: ${error.message}`);
     throw new Error("Failed to fetch video details.");
   }
 };
 
 // Helper function to compress audio using ffmpeg
 const compressAudio = async (inputPath, outputPath) => {
-  console.log("Compressing audio...");
+  console.log("[COMPRESS] Compressing audio...");
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .audioBitrate(64)
       .save(outputPath)
       .on("end", () => {
-        console.log("Audio compression completed:", outputPath);
+        console.log(`[COMPRESS] Compression completed: ${outputPath}`);
         resolve(outputPath);
       })
       .on("error", (err) => {
-        console.error("Error compressing audio:", err.message);
+        console.error("[COMPRESS] Compression error:", err.message);
         reject(err);
       });
   });
 };
 
-// Updated helper function to download and compress audio
+// Helper function to download and compress audio
 const downloadAndCompressAudio = async (videoId) => {
   const originalAudioPath = path.resolve(__dirname, `../temp/${videoId}.mp3`);
   const compressedAudioPath = path.resolve(__dirname, `../temp/${videoId}_compressed.mp3`);
 
-  console.log("Downloading audio...");
+  console.log(`[DOWNLOAD] Downloading audio for video ID: ${videoId}`);
   await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
     extractAudio: true,
     audioFormat: "mp3",
@@ -76,28 +77,25 @@ const downloadAndCompressAudio = async (videoId) => {
   });
 
   if (!fs.existsSync(originalAudioPath)) {
-    throw new Error(`Audio file not found at path: ${originalAudioPath}`);
+    console.error(`[DOWNLOAD] Audio file not found: ${originalAudioPath}`);
+    throw new Error("Audio file not found.");
   }
 
-  console.log("Audio file downloaded:", originalAudioPath);
+  console.log(`[DOWNLOAD] Download completed: ${originalAudioPath}`);
 
-  // Compress the audio file
   await compressAudio(originalAudioPath, compressedAudioPath);
 
-  // Delete the original audio file to save space
-  if (fs.existsSync(originalAudioPath)) {
-    fs.unlinkSync(originalAudioPath);
-    console.log(`Original audio file ${originalAudioPath} removed.`);
-  }
+  // Clean up the original file
+  fs.unlinkSync(originalAudioPath);
+  console.log(`[CLEANUP] Original audio file removed: ${originalAudioPath}`);
 
   return compressedAudioPath;
 };
 
-// Helper function to transcribe audio using AssemblyAI
-const transcribeAudio = async (audioPath) => {
+// Helper function to transcribe and summarize audio
+const transcribeAndSummarize = async (audioPath) => {
+  console.log(`[TRANSCRIBE] Uploading audio for transcription: ${audioPath}`);
   const uploadUrl = "https://api.assemblyai.com/v2/upload";
-
-  console.log("Uploading audio to AssemblyAI...");
   const audioStream = fs.createReadStream(audioPath);
 
   const uploadResponse = await axios.post(uploadUrl, audioStream, {
@@ -108,11 +106,17 @@ const transcribeAudio = async (audioPath) => {
   });
 
   const { upload_url: audioUrl } = uploadResponse.data;
+  console.log(`[TRANSCRIBE] Audio uploaded: ${audioUrl}`);
 
-  console.log("Audio uploaded. Starting transcription...");
+  console.log("[TRANSCRIBE] Starting transcription...");
   const transcriptResponse = await axios.post(
     "https://api.assemblyai.com/v2/transcript",
-    { audio_url: audioUrl },
+    {
+      audio_url: audioUrl,
+      summarization: true,
+      summary_model: "informative",
+      summary_type: "bullets_verbose",
+    },
     {
       headers: {
         authorization: ASSEMBLYAI_API_KEY,
@@ -122,126 +126,57 @@ const transcribeAudio = async (audioPath) => {
 
   const { id: transcriptId } = transcriptResponse.data;
 
-  let transcription;
   while (true) {
     const statusResponse = await axios.get(
       `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
       {
-        headers: {
-          authorization: ASSEMBLYAI_API_KEY,
-        },
+        headers: { authorization: ASSEMBLYAI_API_KEY },
       }
     );
 
     if (statusResponse.data.status === "completed") {
-      transcription = statusResponse.data.text;
-      break;
+      console.log("[TRANSCRIBE] Transcription completed.");
+      return statusResponse.data.summary;
     }
 
     if (statusResponse.data.status === "failed") {
-      throw new Error("AssemblyAI transcription failed.");
+      throw new Error("[TRANSCRIBE] Transcription failed.");
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    console.log("[TRANSCRIBE] In progress...");
+    await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait for 5 seconds before polling again
   }
-
-  console.log("Transcription completed:", transcription);
-  return transcription;
-};
-
-// Helper function to summarize transcription in chunks using Hugging Face
-const summarizeTranscription = async (transcription) => {
-  const chunkSize = 500; // Break transcription into smaller chunks
-  const transcriptionChunks = [];
-
-  for (let i = 0; i < transcription.length; i += chunkSize) {
-    transcriptionChunks.push(transcription.slice(i, i + chunkSize));
-  }
-
-  const summarizedChunks = [];
-  for (const chunk of transcriptionChunks) {
-    try {
-      const prompt = `Summarize the following text into concise and important points suitable for flashcards:\n\n${chunk}\n\nSummary:`;
-      const response = await axios.post(
-        "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
-        { inputs: prompt },
-        {
-          headers: {
-            Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 30000,
-        }
-      );
-
-      const summary = response.data[0].summary_text.trim();
-      summarizedChunks.push(summary);
-    } catch (error) {
-      console.error("Error summarizing transcription chunk:", error.response?.data || error.message);
-      throw new Error("Failed to summarize transcription.");
-    }
-  }
-
-  return summarizedChunks.join("\n");
 };
 
 // Worker for processing flashcards generation
 new Worker(
   "flashcardsQueue",
   async (job) => {
-    console.log("Processing job:", job.id);
-
     const { videoId, userId } = job.data;
 
     try {
-      // Fetch video details
+      console.log(`[WORKER] Processing job for video ID: ${videoId}, User ID: ${userId}`);
       const { title, thumbnail } = await fetchVideoDetails(videoId);
-
-      // Download and compress audio
       const compressedAudioPath = await downloadAndCompressAudio(videoId);
+      const summary = await transcribeAndSummarize(compressedAudioPath);
 
-      try {
-        // Transcribe compressed audio
-        const transcription = await transcribeAudio(compressedAudioPath);
-        console.log("Full transcription obtained.");
+      const flashcards = summary
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((content) => ({ content }));
 
-        // Summarize the transcription
-        const summarizedTranscription = await summarizeTranscription(transcription);
-        console.log("Summarized transcription:", summarizedTranscription);
+      const video = new YouTubeVideo({ videoId, userId, title, thumbnail, flashcards });
+      await video.save();
 
-        // Generate flashcards
-        const flashcards = summarizedTranscription
-          .split("\n")
-          .filter((line) => line.trim())
-          .map((content) => ({ content }));
-
-        console.log("Generated flashcards:", flashcards);
-
-        // Save to database
-        const video = new YouTubeVideo({
-          videoId,
-          userId,
-          title,
-          thumbnail,
-          flashcards,
-        });
-
-        await video.save();
-
-        console.log("Job completed successfully.");
-      } finally {
-        // Clean up compressed audio file
-        if (fs.existsSync(compressedAudioPath)) {
-          fs.unlinkSync(compressedAudioPath);
-          console.log(`Compressed audio file ${compressedAudioPath} removed.`);
-        }
-      }
+      console.log(`[WORKER] Job completed successfully for video ID: ${videoId}`);
+      fs.unlinkSync(compressedAudioPath);
+      console.log(`[CLEANUP] Compressed audio removed: ${compressedAudioPath}`);
     } catch (error) {
-      console.error("Error processing job:", error);
+      console.error(`[WORKER] Job failed: ${error.message}`);
       throw error;
     }
   },
-  { connection, attempts: 5, backoff: { type: "fixed", delay: 5000 } }
+  { connection }
 );
 
 // Route to generate flashcards
@@ -249,16 +184,19 @@ router.post("/generate", ensureAuthenticated, async (req, res) => {
   const { videoId } = req.body;
 
   if (!videoId) {
+    console.log("[REQUEST] Missing video ID in request.");
     return res.status(400).json({ error: "Video ID is required" });
   }
 
   try {
+    console.log(`[REQUEST] Received request to generate flashcards for video ID: ${videoId}`);
     const existingVideo = await YouTubeVideo.findOne({
       videoId,
       userId: req.user._id,
     });
 
     if (existingVideo) {
+      console.log("[REQUEST] Flashcards already exist for this video.");
       return res.status(400).json({
         error: "Flashcards for this video already exist for this user.",
       });
@@ -269,15 +207,16 @@ router.post("/generate", ensureAuthenticated, async (req, res) => {
       userId: req.user._id,
     });
 
+    console.log(`[QUEUE] Job added to queue with ID: ${job.id}`);
     res.json({
       message: "Flashcards generation process has started.",
       jobId: job.id,
     });
   } catch (error) {
+    console.error(`[REQUEST] Error processing generate request: ${error.message}`);
     res.status(500).json({ error: "Failed to process the video." });
   }
 });
-
 
 // Route to get saved videos
 router.get("/saved-videos", ensureAuthenticated, async (req, res) => {
@@ -327,5 +266,51 @@ router.delete("/:videoId", ensureAuthenticated, async (req, res) => {
     res.status(500).json({ error: "Failed to delete video." });
   }
 });
+
+// Route for full search
+router.get("/search", ensureAuthenticated, async (req, res) => {
+  const { query } = req.query; // Extract query parameter
+
+  if (!query || query.trim() === "") {
+    return res.status(400).json({ error: "Search query cannot be empty." });
+  }
+
+  try {
+    const videos = await YouTubeVideo.find({
+      title: { $regex: query, $options: "i" }, // Case-insensitive regex search
+      userId: req.user._id, // Ensure results are specific to the logged-in user
+    });
+
+    if (videos.length === 0) {
+      return res.status(404).json({ message: "No videos found." });
+    }
+
+    res.json(videos);
+  } catch (error) {
+    console.error("Error searching videos:", error);
+    res.status(500).json({ error: "Failed to search for videos." });
+  }
+});
+
+// Route for auto-suggestions while typing
+router.get("/search-suggestions", ensureAuthenticated, async (req, res) => {
+  const { query } = req.query;
+
+  if (!query) {
+    return res.status(400).json({ error: "Query parameter is required" });
+  }
+
+  try {
+    const videos = await YouTubeVideo.find({
+      title: { $regex: query, $options: "i" },
+      userId: req.user._id,
+    }).limit(10); // Limit suggestions to 10 items
+    res.json(videos);
+  } catch (error) {
+    console.error("Error fetching search suggestions:", error);
+    res.status(500).json({ error: "Failed to fetch search suggestions." });
+  }
+});
+
 
 module.exports = router;
