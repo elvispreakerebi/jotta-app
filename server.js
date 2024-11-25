@@ -52,11 +52,11 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Debugging Middleware
-// app.use((req, res, next) => {
-//     console.log("Session Data:", req.session);
-//     console.log("Authenticated User:", req.user);
-//     next();
-// });
+app.use((req, res, next) => {
+    console.log("Session Data:", req.session);
+    console.log("Authenticated User:", req.user);
+    next();
+});
 
 // Routes
 app.use("/auth", require("./routes/auth"));

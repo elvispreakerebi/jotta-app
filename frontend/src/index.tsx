@@ -3,6 +3,11 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import axios from "axios";
+
+// Set Axios defaults
+axios.defaults.baseURL = "https://jotta-app.onrender.com"; // Replace with your backend URL
+axios.defaults.withCredentials = true; // Include credentials for all requests
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
