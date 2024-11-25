@@ -113,9 +113,7 @@ const transcribeAndSummarize = async (audioPath) => {
     "https://api.assemblyai.com/v2/transcript",
     {
       audio_url: audioUrl,
-      summarization: true,
-      summary_model: "informative",
-      summary_type: "bullets_verbose",
+      auto_chapters: true, // Enable auto chapters
     },
     {
       headers: {
@@ -136,7 +134,28 @@ const transcribeAndSummarize = async (audioPath) => {
 
     if (statusResponse.data.status === "completed") {
       console.log("[TRANSCRIBE] Transcription completed.");
-      return statusResponse.data.summary;
+
+      const { chapters } = statusResponse.data;
+
+      if (!chapters || chapters.length === 0) {
+        throw new Error("[TRANSCRIBE] No chapters found in the transcription.");
+      }
+
+      console.log(`[TRANSCRIBE] Extracting summaries from ${chapters.length} chapters.`);
+
+      // Map chapters to flashcards structure
+      const flashcards = chapters.map((chapter, index) => {
+        console.log(`Chapter ${index + 1}:`, chapter); // Log each chapter for debugging
+
+        return {
+          content: chapter.summary || "No content available",
+          startTime: chapter.start || 0,
+          endTime: chapter.end || 0,
+        };
+      });
+
+      console.log("[TRANSCRIBE] Flashcards:", flashcards);
+      return flashcards;
     }
 
     if (statusResponse.data.status === "failed") {
@@ -148,36 +167,51 @@ const transcribeAndSummarize = async (audioPath) => {
   }
 };
 
-// Worker for processing flashcards generation
+
+// Updated to include start and end times in flashcards
 new Worker(
   "flashcardsQueue",
   async (job) => {
     const { videoId, userId } = job.data;
 
+    let compressedAudioPath; // Declare here for cleanup in finally block
     try {
       console.log(`[WORKER] Processing job for video ID: ${videoId}, User ID: ${userId}`);
       const { title, thumbnail } = await fetchVideoDetails(videoId);
-      const compressedAudioPath = await downloadAndCompressAudio(videoId);
-      const summary = await transcribeAndSummarize(compressedAudioPath);
+      compressedAudioPath = await downloadAndCompressAudio(videoId);
 
-      const flashcards = summary
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((content) => ({ content }));
+      // Fetch and log chapters
+      const chapters = await transcribeAndSummarize(compressedAudioPath);
+      console.log("[WORKER] Chapters received:", chapters);
+
+      // Directly use the returned chapters as flashcards
+      const flashcards = chapters.map((chapter) => ({
+        content: chapter.content,
+        startTime: chapter.startTime,
+        endTime: chapter.endTime,
+      }));
+
+      console.log("[WORKER] Final Flashcards:", flashcards);
 
       const video = new YouTubeVideo({ videoId, userId, title, thumbnail, flashcards });
       await video.save();
 
       console.log(`[WORKER] Job completed successfully for video ID: ${videoId}`);
-      fs.unlinkSync(compressedAudioPath);
-      console.log(`[CLEANUP] Compressed audio removed: ${compressedAudioPath}`);
     } catch (error) {
       console.error(`[WORKER] Job failed: ${error.message}`);
       throw error;
+    } finally {
+      // Cleanup the compressed audio file
+      if (compressedAudioPath && fs.existsSync(compressedAudioPath)) {
+        fs.unlinkSync(compressedAudioPath);
+        console.log(`[CLEANUP] Compressed audio file removed: ${compressedAudioPath}`);
+      }
     }
   },
   { connection }
 );
+
+
 
 // Route to generate flashcards
 router.post("/generate", ensureAuthenticated, async (req, res) => {

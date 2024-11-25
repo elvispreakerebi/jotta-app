@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 
 const FlashcardSchema = new mongoose.Schema({
   content: String,
+  startTime: Number,
+  endTime: Number
 });
 
 const YouTubeVideoSchema = new mongoose.Schema(
