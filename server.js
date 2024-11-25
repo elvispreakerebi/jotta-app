@@ -13,7 +13,7 @@ const app = express();
 // Middleware
 app.use(
     cors({
-        origin: "https://jotta-app.onrender.com/", // Frontend URL
+        origin: "https://jotta-app.onrender.com", // Frontend URL
         credentials: true, // Allow cookies
     })
 );
@@ -30,19 +30,25 @@ require("./config/passport")(passport);
 app.use(
     session({
         store: MongoStore.create({
-            mongoUrl: process.env.MONGO_URI, // MongoDB connection string
-            collectionName: "sessions", // Collection to store sessions
+            mongoUrl: process.env.MONGO_URI,
+            collectionName: "sessions",
         }),
         secret: process.env.SESSION_SECRET || "default_secret",
-        resave: false, // Avoid resaving unchanged sessions
-        saveUninitialized: false, // Don't save empty sessions
+        resave: false,
+        saveUninitialized: false,
         cookie: {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production", // Use secure cookies in production
+            secure: process.env.NODE_ENV === "production", // HTTPS in production
             sameSite: "lax",
         },
     })
 );
+
+app.use((req, res, next) => {
+    console.log("Session Cookie Settings:", req.session.cookie);
+    next();
+});
+
 
 // Flash Middleware
 app.use(flash());
