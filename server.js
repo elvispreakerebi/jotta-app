@@ -13,7 +13,7 @@ const app = express();
 // Middleware
 app.use(
     cors({
-        origin: "https://jotta-app.onrender.com", // Frontend URL
+        origin: "localhost:3000", // Frontend URL
         credentials: true, // Allow cookies
     })
 );
@@ -44,10 +44,10 @@ app.use(
     })
 );
 
-app.use((req, res, next) => {
-    console.log("Session Cookie Settings:", req.session.cookie);
-    next();
-});
+// app.use((req, res, next) => {
+//     console.log("Session Cookie Settings:", req.session.cookie);
+//     next();
+// });
 
 
 // Flash Middleware
@@ -58,11 +58,11 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Debugging Middleware
-app.use((req, res, next) => {
-    console.log("Session Data:", req.session);
-    console.log("Authenticated User:", req.user);
-    next();
-});
+// app.use((req, res, next) => {
+//     console.log("Session Data:", req.session);
+//     console.log("Authenticated User:", req.user);
+//     next();
+// });
 
 // Routes
 app.use("/auth", require("./routes/auth"));

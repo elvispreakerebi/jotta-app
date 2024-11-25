@@ -13,16 +13,9 @@ const router = express.Router();
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
-// // Redis connection options
-// const connection = {
-//   host: "localhost",
-//   port: 6379,
-// };
 const Redis = require("ioredis");
 const redis = new Redis(process.env.REDIS_URL);
-const connection = {
-  redis,
-};
+const connection = { redis };
 
 // Create the queue and events tracker
 const flashcardsQueue = new Queue("flashcardsQueue", { connection });
@@ -51,24 +44,53 @@ const fetchVideoDetails = async (videoId) => {
   }
 };
 
-// Helper function to download audio
-const downloadAudio = async (videoId) => {
-  const audioPath = path.resolve(__dirname, `../temp/${videoId}.mp3`);
+// Helper function to compress audio using ffmpeg
+const compressAudio = async (inputPath, outputPath) => {
+  console.log("Compressing audio...");
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioBitrate(64)
+      .save(outputPath)
+      .on("end", () => {
+        console.log("Audio compression completed:", outputPath);
+        resolve(outputPath);
+      })
+      .on("error", (err) => {
+        console.error("Error compressing audio:", err.message);
+        reject(err);
+      });
+  });
+};
+
+// Updated helper function to download and compress audio
+const downloadAndCompressAudio = async (videoId) => {
+  const originalAudioPath = path.resolve(__dirname, `../temp/${videoId}.mp3`);
+  const compressedAudioPath = path.resolve(__dirname, `../temp/${videoId}_compressed.mp3`);
 
   console.log("Downloading audio...");
   await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
     extractAudio: true,
     audioFormat: "mp3",
-    output: audioPath,
+    output: originalAudioPath,
     audioQuality: "128K",
   });
 
-  if (!fs.existsSync(audioPath)) {
-    throw new Error(`Audio file not found at path: ${audioPath}`);
+  if (!fs.existsSync(originalAudioPath)) {
+    throw new Error(`Audio file not found at path: ${originalAudioPath}`);
   }
 
-  console.log("Audio file downloaded:", audioPath);
-  return audioPath;
+  console.log("Audio file downloaded:", originalAudioPath);
+
+  // Compress the audio file
+  await compressAudio(originalAudioPath, compressedAudioPath);
+
+  // Delete the original audio file to save space
+  if (fs.existsSync(originalAudioPath)) {
+    fs.unlinkSync(originalAudioPath);
+    console.log(`Original audio file ${originalAudioPath} removed.`);
+  }
+
+  return compressedAudioPath;
 };
 
 // Helper function to transcribe audio using AssemblyAI
@@ -89,13 +111,13 @@ const transcribeAudio = async (audioPath) => {
 
   console.log("Audio uploaded. Starting transcription...");
   const transcriptResponse = await axios.post(
-      "https://api.assemblyai.com/v2/transcript",
-      { audio_url: audioUrl },
-      {
-        headers: {
-          authorization: ASSEMBLYAI_API_KEY,
-        },
-      }
+    "https://api.assemblyai.com/v2/transcript",
+    { audio_url: audioUrl },
+    {
+      headers: {
+        authorization: ASSEMBLYAI_API_KEY,
+      },
+    }
   );
 
   const { id: transcriptId } = transcriptResponse.data;
@@ -103,12 +125,12 @@ const transcribeAudio = async (audioPath) => {
   let transcription;
   while (true) {
     const statusResponse = await axios.get(
-        `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-        {
-          headers: {
-            authorization: ASSEMBLYAI_API_KEY,
-          },
-        }
+      `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+      {
+        headers: {
+          authorization: ASSEMBLYAI_API_KEY,
+        },
+      }
     );
 
     if (statusResponse.data.status === "completed") {
@@ -127,13 +149,13 @@ const transcribeAudio = async (audioPath) => {
   return transcription;
 };
 
-// Helper function to summarize transcription using Hugging Face Inference API
+// Helper function to summarize transcription in chunks using Hugging Face
 const summarizeTranscription = async (transcription) => {
-  const maxInputLength = 1024; // Hugging Face models often work best with limited input
+  const chunkSize = 500; // Break transcription into smaller chunks
   const transcriptionChunks = [];
 
-  for (let i = 0; i < transcription.length; i += maxInputLength) {
-    transcriptionChunks.push(transcription.slice(i, i + maxInputLength));
+  for (let i = 0; i < transcription.length; i += chunkSize) {
+    transcriptionChunks.push(transcription.slice(i, i + chunkSize));
   }
 
   const summarizedChunks = [];
@@ -141,27 +163,22 @@ const summarizeTranscription = async (transcription) => {
     try {
       const prompt = `Summarize the following text into concise and important points suitable for flashcards:\n\n${chunk}\n\nSummary:`;
       const response = await axios.post(
-          "https://api-inference.huggingface.co/models/facebook/bart-large-cnn", // Hugging Face Summarization Model
-          { inputs: prompt },
-          {
-            headers: {
-              Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            timeout: 30000, // 30 seconds timeout
-          }
+        "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
+        { inputs: prompt },
+        {
+          headers: {
+            Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 30000,
+        }
       );
-
-      if (response.data.error) {
-        console.error("Hugging Face API Error:", response.data.error);
-        throw new Error(response.data.error);
-      }
 
       const summary = response.data[0].summary_text.trim();
       summarizedChunks.push(summary);
     } catch (error) {
-      console.error("Detailed API error response:", error.response?.data || error.message);
-      throw new Error("Failed to summarize transcription using Hugging Face.");
+      console.error("Error summarizing transcription chunk:", error.response?.data || error.message);
+      throw new Error("Failed to summarize transcription.");
     }
   }
 
@@ -170,72 +187,61 @@ const summarizeTranscription = async (transcription) => {
 
 // Worker for processing flashcards generation
 new Worker(
-    "flashcardsQueue",
-    async (job) => {
-      console.log("Processing job:", job.id);
+  "flashcardsQueue",
+  async (job) => {
+    console.log("Processing job:", job.id);
 
-      const { videoId, userId } = job.data;
+    const { videoId, userId } = job.data;
+
+    try {
+      // Fetch video details
+      const { title, thumbnail } = await fetchVideoDetails(videoId);
+
+      // Download and compress audio
+      const compressedAudioPath = await downloadAndCompressAudio(videoId);
 
       try {
-        // Fetch video details
-        const { title, thumbnail } = await fetchVideoDetails(videoId);
+        // Transcribe compressed audio
+        const transcription = await transcribeAudio(compressedAudioPath);
+        console.log("Full transcription obtained.");
 
-        // Download audio
-        const audioPath = await downloadAudio(videoId);
+        // Summarize the transcription
+        const summarizedTranscription = await summarizeTranscription(transcription);
+        console.log("Summarized transcription:", summarizedTranscription);
 
-        try {
-          // Transcribe audio
-          const transcription = await transcribeAudio(audioPath);
-          console.log("Full transcription obtained.");
+        // Generate flashcards
+        const flashcards = summarizedTranscription
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((content) => ({ content }));
 
-          // Summarize the transcription
-          const summarizedTranscription = await summarizeTranscription(transcription);
-          console.log("Summarized transcription:", summarizedTranscription);
+        console.log("Generated flashcards:", flashcards);
 
-          // Generate flashcards
-          const flashcards = summarizedTranscription
-              .split("\n")
-              .filter((line) => line.trim())
-              .map((content) => ({ content }));
+        // Save to database
+        const video = new YouTubeVideo({
+          videoId,
+          userId,
+          title,
+          thumbnail,
+          flashcards,
+        });
 
-          console.log("Generated flashcards:", flashcards);
+        await video.save();
 
-          // Save to database
-          const video = new YouTubeVideo({
-            videoId,
-            userId,
-            title,
-            thumbnail,
-            flashcards,
-          });
-
-          await video.save();
-
-          console.log("Job completed successfully.");
-        } finally {
-          // Clean up audio file after processing
-          if (fs.existsSync(audioPath)) {
-            fs.unlinkSync(audioPath);
-            console.log(`Audio file ${audioPath} removed.`);
-          }
+        console.log("Job completed successfully.");
+      } finally {
+        // Clean up compressed audio file
+        if (fs.existsSync(compressedAudioPath)) {
+          fs.unlinkSync(compressedAudioPath);
+          console.log(`Compressed audio file ${compressedAudioPath} removed.`);
         }
-      } catch (error) {
-        console.error("Error processing job:", error);
-
-        // Retry job if it's a transient error
-        if (error.message.includes("Failed to summarize transcription") || error.message.includes("AssemblyAI transcription failed")) {
-          console.log("Retrying job...");
-          if (job.attemptsMade >= 5) {
-            console.error("Max retries reached. Job will not be retried further.");
-            return; // Prevent further retries
-          }
-          throw error; // BullMQ will handle retrying the job
-        }
-
-        throw error; // For other errors, let the job fail without retrying
       }
-    },
-    { connection, attempts: 5, backoff: { type: "fixed", delay: 5000 } } // Retry logic
+    } catch (error) {
+      console.error("Error processing job:", error);
+      throw error;
+    }
+  },
+  { connection, attempts: 5, backoff: { type: "fixed", delay: 5000 } }
 );
 
 // Route to generate flashcards

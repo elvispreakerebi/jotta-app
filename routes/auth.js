@@ -31,7 +31,7 @@ router.get(
       }
 
       // Redirect with flash messages
-      res.redirect(`https://jotta-app.onrender.com/dashboard?message=${encodeURIComponent(req.flash("success"))}`);
+      res.redirect(`http://localhost:3000/dashboard?message=${encodeURIComponent(req.flash("success"))}`);
     } catch (err) {
       console.error(err);
       res.redirect("/login");
