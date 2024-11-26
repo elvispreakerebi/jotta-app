@@ -8,7 +8,7 @@ import axios from "axios";
 // Set Axios defaults based on the environment
 axios.defaults.baseURL =
   process.env.NODE_ENV === "production"
-    ? "" // In production, Axios will default to the same domain as the frontend
+    ? "https://jotta.onrender.com" // In production, Axios will default to the same domain as the frontend
     : "http://localhost:3000"; // Use your backend's development URL
 axios.defaults.withCredentials = true; // Include credentials for all requests
 
