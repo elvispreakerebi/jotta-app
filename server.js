@@ -13,8 +13,10 @@ const app = express();
 // Middleware
 app.use(
     cors({
-        origin: "localhost:3000", // Frontend URL
-        credentials: true, // Allow cookies
+      origin: process.env.NODE_ENV === "production"
+        ? "https://jotta.onrender.com" // Your frontend's production URL
+        : "http://localhost:3000", // Development URL
+      credentials: true, // Allow credentials
     })
 );
 app.use(express.json());
@@ -29,18 +31,17 @@ require("./config/passport")(passport);
 // Session Middleware using MongoDB
 app.use(
     session({
-        store: MongoStore.create({
-            mongoUrl: process.env.MONGO_URI,
-            collectionName: "sessions",
-        }),
-        secret: process.env.SESSION_SECRET || "default_secret",
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production", // HTTPS in production
-            sameSite: "lax",
-        },
+      secret: process.env.SESSION_SECRET || "your_secret", // Use a strong secret in production
+      resave: false,
+      saveUninitialized: false,
+      store: MongoStore.create({
+        mongoUrl: process.env.MONGO_URI, // Your MongoDB connection string
+      }),
+      cookie: {
+        secure: process.env.NODE_ENV === "production", // Secure cookies only in production
+        httpOnly: true, // Prevent client-side access to the cookie
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Adjust for environment
+      },
     })
 );
 
