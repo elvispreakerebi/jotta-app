@@ -1,4 +1,8 @@
 .env
-.vscode
-temp
-node_modules
+
+# files
+.idea
+
+#folders
+/temp
+/node_modules
