@@ -1,17 +1,21 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
 import axios from "axios";
 
-// Set Axios defaults
-axios.defaults.baseURL = "http://localhost:3000"; // Replace with your backend URL
+// Set Axios defaults based on the environment
+axios.defaults.baseURL =
+  process.env.NODE_ENV === "production"
+    ? "" // In production, Axios will default to the same domain as the frontend
+    : "http://localhost:3000"; // Use your backend's development URL
 axios.defaults.withCredentials = true; // Include credentials for all requests
 
 const root = ReactDOM.createRoot(
-  document.getElementById('root') as HTMLElement
+  document.getElementById("root") as HTMLElement
 );
+
 root.render(
   <React.StrictMode>
     <App />
