@@ -3,7 +3,7 @@ import { FcVideoCall } from "react-icons/fc"; // Import video-related icon
 
 const Home = () => {
   const handleGoogleLogin = () => {
-    window.location.href = "http://localhost:3000/auth/google"; // Redirect to backend
+    window.location.href = "https://jotta-backend.onrender.com/auth/google"; // Redirect to backend
   };
 
   return (

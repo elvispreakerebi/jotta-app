@@ -12,7 +12,7 @@ const router = express.Router();
 
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 
-// Redis connection options
+//Redis connection options
 const Redis = require("ioredis");
 const redis = new Redis(process.env.REDIS_URL);
 const connection = { redis };
