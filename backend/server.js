@@ -40,7 +40,7 @@ app.use(
       cookie: {
         secure: process.env.NODE_ENV === "production", // Secure cookies only in production
         httpOnly: true, // Prevent client-side access to the cookie
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Adjust for environment
+        sameSite: 'none', // Adjust for environment
       },
     })
 );
