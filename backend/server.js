@@ -14,7 +14,7 @@ const app = express();
 app.use(
     cors({
       origin: process.env.NODE_ENV === "production"
-        ? "https://jotta-app.onrender.com" // Your frontend's production URL
+        ? "http://localhost:3001" // Your frontend's production URL
         : "http://localhost:3001", // Development URL
       credentials: true, // Allow credentials
     })

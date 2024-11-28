@@ -30,16 +30,11 @@ router.get(
         req.flash("success", "You've logged in");
       }
 
-      // Redirect to the frontend dashboard
-      const frontendUrl =
-        process.env.NODE_ENV === "production"
-          ? "https://jotta-app.onrender.com/dashboard"
-          : "http://localhost:3000/dashboard";
+      // Dynamically determine the base URL
+      // const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-      // Pass flash messages as query parameters
-      res.redirect(
-        `${frontendUrl}?message=${encodeURIComponent(req.flash("success"))}`
-      );
+      // Redirect with flash messages
+      res.redirect(`http://localhost:3001/dashboard?message=${encodeURIComponent(req.flash("success"))}`);
     } catch (err) {
       console.error(err);
       res.redirect("/login");
