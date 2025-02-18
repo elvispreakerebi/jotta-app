@@ -14,7 +14,7 @@ const app = express();
 app.use(
     cors({
       origin: process.env.NODE_ENV === "production"
-        ? "https://localhost:3000" // Your frontend's production URL
+        ? "http://localhost:3000" // Your frontend's production URL
         : "http://localhost:3000", // Development URL
       credentials: true, // Allow credentials
     })
@@ -78,5 +78,5 @@ app.get("*", (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

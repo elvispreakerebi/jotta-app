@@ -31,10 +31,10 @@ router.get(
       }
 
       // Dynamically determine the base URL
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      // const baseUrl = `${req.protocol}://${req.get("host")}`;
 
       // Redirect with flash messages
-      res.redirect(`${baseUrl}/dashboard?message=${encodeURIComponent(req.flash("success"))}`);
+      res.redirect(`http://localhost:3000/dashboard?message=${encodeURIComponent(req.flash("success"))}`);
     } catch (err) {
       console.error(err);
       res.redirect("/login");
